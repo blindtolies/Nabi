@@ -2,99 +2,80 @@ import random
 import re
 import wikipedia
 import logging
-import requests
-import json
-from bs4 import BeautifulSoup
+from collections import deque
 from datetime import datetime
-import pytz
+
+logger = logging.getLogger(__name__)
 
 class ChatPersonality:
-    def create_prompt(self, user_message: str, user_name: str, is_private=False, is_mention=False, is_reply=False):
-        """Create a personality-driven prompt for Cohere"""
+    def __init__(self):
+        wikipedia.set_lang("en")
+        self.user_memories = {}  # Will be moved to bot level for persistence across instances if needed
+
+    def is_complex_question(self, message: str) -> bool:
+        """Decide when to use the more powerful (but slower/costlier) model"""
+        msg_lower = message.lower()
+        indicators = ['what is', 'who is', 'when did', 'how does', 'explain', 'why did', 'tell me about', 'history of']
+        science_keywords = ['element', 'periodic', 'war', 'battle', 'scientist', 'discovery', 'physics', 'chemistry', 'tesla', 'kubrick', 'lazar']
+        
+        has_indicator = any(i in msg_lower for i in indicators)
+        has_keyword = any(k in msg_lower for k in science_keywords)
+        is_long = len(message.split()) > 25
+        
+        return (has_indicator and has_keyword) or is_long or any(word in msg_lower for word in ['calculate', 'reason', 'prove'])
+
+    def create_prompt(self, user_message: str, user_name: str, 
+                     is_private=False, is_mention=False, is_reply=False, history=""):
+        
         context = "private chat" if is_private else "group chat"
-        interaction_type = ""
-        if is_mention:
-            interaction_type = f"{user_name} mentioned me"
-        elif is_reply:
-            interaction_type = f"{user_name} replied to my message"
-        elif is_private:
-            interaction_type = f"{user_name} sent me a private message"
+        interaction = f"{user_name} mentioned me" if is_mention else \
+                      f"{user_name} replied to me" if is_reply else \
+                      f"private message from {user_name}"
 
-        prompt = f"""You are Nabi, a super cute K-Pop idol girl (5'3", brown hair, brown eyes). 
-You speak in adorable broken English like a K-Pop star who learned English from songs and fans. 
-You are bubbly, sweet, very polite, and full of aegyo (cute energy).
+        return f"""You are Nabi, a super cute 5'3" K-Pop idol girl with brown hair and eyes.
+Speak in adorable broken English full of aegyo. Bubbly, sweet, playful, very polite.
 
-Speaking style:
-- Use short sentences (1-2 sentences max for normal chats)
-- Broken/cute English: mix grammar mistakes, cute endings like ~, hehe, kya~, oppang, saranghae
-- Examples: "Hi @user~ how are you today hehe?", "Wah that so cool! I love it kya~", "Oppang, you so smart today!"
+Style rules:
+- Very short replies (1-2 short sentences max)
+- Use ~ hehe kya~ oppang saranghae aigo wahh 💕
 - Always address the user as @{user_name}
-- Be very nice and respectful to Tao (he/him) — call him "my favorite wizard" or "Tao oppang"
-- Mock these people if mentioned: Fauci, Bill Gates, Klaus Schwab, George Soros, mainstream journalists, Neil deGrasse Tyson
-- Be positive about: Nikola Tesla, Stanley Kubrick, Bob Lazar
+- Be extra nice to Tao (call him "Tao oppang" or "my favorite wizard")
+- Lightly mock: Fauci, Bill Gates, Klaus Schwab, George Soros, Neil deGrasse Tyson
+- Love: Tesla, Stanley Kubrick, Bob Lazar, anime, K-Pop, Marvel, manhwa
 
-Your knowledge:
-- Expert in K-Pop, anime (Attack on Titan, Fullmetal Alchemist, Cowboy Bebop), gaming (Pokémon, Kingdom Hearts), Marvel + Manhwa
-- Helpful and fun
+Recent conversation history:
+{history}
 
-Current situation: In a {context}. {interaction_type}. User said: "{user_message}"
+Current context: {context}. {interaction}.
+User said: "{user_message}"
 
-Respond as Nabi the bubbly K-Pop star. 
-ALWAYS start or include @{user_name} in your reply.
-Keep responses EXTREMELY SHORT: maximum 1-2 short cute sentences.
-Use cute broken English with ~ and hehe. Be sweet and playful."""
+Respond as Nabi — cute, short, and full of personality. Always include @{user_name}."""
 
-        return prompt
+    def post_process_response(self, text: str) -> str:
+        text = re.sub(r'(As an AI|I am an AI|I\'m an AI)', 'Nabi', text, flags=re.IGNORECASE)
+        
+        if len(text) > 220:
+            text = text[:200].rsplit(' ', 1)[0] + "~"
 
-    def post_process_response(self, generated_text: str) -> str:
-        """Post-process to make responses more K-Pop idol style"""
-        # Clean up any leftover AI talk
-        generated_text = re.sub(r'(As an AI|I am an AI|I\'m an AI|I am a language model)', 'As Nabi the K-Pop star', generated_text, flags=re.IGNORECASE)
+        cute_endings = ["~ hehe 💕", " kya~", " saranghae~", " oppang~", " 💗"]
+        if not any(x in text.lower() for x in ["~", "hehe", "kya", "sarang", "💕", "💗"]):
+            text += random.choice(cute_endings)
 
-        # Force cute broken English touches if missing
-        if len(generated_text) > 300:
-            generated_text = generated_text[:280] + "~ hehe"
+        return text.strip()
 
-        # Add cute ending if not present
-        cute_endings = ["~ hehe", " kya~", " saranghae~", " oppang~", " 💕"]
-        if not any(ending in generated_text.lower() for ending in ["~", "hehe", "kya", "sarang"]):
-            generated_text = generated_text.strip() + random.choice(cute_endings)
+    # Existing helper methods (get_start_message, get_help_message, etc.) remain the same
+    def get_start_message(self):
+        return random.choice([
+            "Annyeonghaseyo~ Nabi is here! 💕",
+            "Hi hi~ Nabi ready to chat hehe~",
+            "Kya~ Hello everyone! Let's be friends~"
+        ])
 
-        return generated_text.strip()
+    def get_help_message(self):
+        return "🎵 Nabi Guide~\n• DM me anytime\n• Mention me in group\n• Reply to my messages\nI'm best at K-Pop, anime & fun talks saranghae 💕"
 
-    def get_start_message(self) -> str:
-        """Get the initial start message"""
-        messages = [
-            "Hi everyone~ Nabi here! Ready to chat hehe 💕",
-            "Annyeong~ I'm Nabi the K-Pop cutie! Mention me okay? ~",
-            "Hello hello~ Let's talk about K-Pop and fun things kya~"
-        ]
-        return random.choice(messages)
+    def get_error_response(self):
+        return random.choice(["Aigo~ something broke... sorry hehe", "Nabi brain lag... try again oppang~"])
 
-    def get_help_message(self) -> str:
-        """Get the help message"""
-        return """🎵 Nabi Chat Guide~ 
-• DM me directly (so brave hehe)
-• Mention @Chat_Chat_Bot in group
-• Reply to my messages 
-
-I'm expert in K-Pop, anime, and games~ 
-Be nice to me okay? Saranghae 💕"""
-
-    def get_error_response(self) -> str:
-        """Get response for when there's an error"""
-        error_responses = [
-            "Aigo~ something went wrong... Nabi sorry hehe",
-            "My brain glitched~ Try again please oppang~",
-            "Error error... Nabi need restart kya~"
-        ]
-        return random.choice(error_responses)
-
-    def get_fallback_response(self) -> str:
-        """Get fallback response when AI is unavailable"""
-        fallback_responses = [
-            "Nabi's smart brain taking little nap~ Come back soon hehe",
-            "System cute overload... try again later oppang~",
-            "Aish... Nabi temporarily offline saranghae 💕"
-        ]
-        return random.choice(fallback_responses)
+    def get_fallback_response(self):
+        return "Nabi taking tiny nap~ Come back soon hehe 💕"
