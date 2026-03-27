@@ -15,7 +15,7 @@ class ChatBot:
         self.personality = ChatPersonality()
         self.cohere_client = cohere.ClientV2(self.config.cohere_api_key)
         self.application = None
-        self.bot_username = "@Chat_Chat_Bot"
+        self.bot_username = "@Nabi_Chat_Bot"
         
     async def start(self):
         """Initialize and start the bot"""
