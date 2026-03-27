@@ -18,8 +18,8 @@ class ChatBot:
         self.cohere_client = cohere.ClientV2(self.config.cohere_api_key)
         self.bot_username = "@Nabi_Chat_Bot".lower()
         
-        # Conversation memory: user_id -> deque of (role, content)
-        self.conversations = defaultdict(lambda: deque(maxlen=8))
+        # === Conversation Memory (Still Active) ===
+        self.conversations = defaultdict(lambda: deque(maxlen=8))  # Remembers last 8 turns per user
         
         self.application = None
 
@@ -28,34 +28,28 @@ class ChatBot:
         if not token:
             raise ValueError("Telegram token is required")
 
-        # Clean start without rate limiter
         self.application = Application.builder().token(token).build()
 
-        # Handlers
         self.application.add_handler(CommandHandler("start", self.start_command))
         self.application.add_handler(CommandHandler("help", self.help_command))
 
         self.application.add_handler(MessageHandler(
             filters.TEXT & filters.REPLY & filters.ChatType.GROUPS, self.handle_reply))
-        
         self.application.add_handler(MessageHandler(
             filters.TEXT & filters.Entity("mention"), self.handle_mention))
-        
         self.application.add_handler(MessageHandler(
             filters.TEXT & filters.ChatType.PRIVATE, self.handle_private_message))
-        
         self.application.add_handler(MessageHandler(
             filters.TEXT & filters.ChatType.GROUPS, self.handle_group_message))
 
-        logger.info("🚀 Nabi Bot is starting with conversation memory...")
+        logger.info("🚀 Nabi Bot starting with conversation memory...")
         await self.application.initialize()
         await self.application.start()
         await self.application.updater.start_polling()
 
-        logger.info("✅ Nabi is online and cuter than ever~ 💕")
+        logger.info("✅ Nabi is online~ 💕")
         await asyncio.Event().wait()
 
-    # ====================== Command Handlers ======================
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if update.message:
             await update.message.reply_text(self.personality.get_start_message())
@@ -64,7 +58,6 @@ class ChatBot:
         if update.message:
             await update.message.reply_text(self.personality.get_help_message())
 
-    # ====================== Core Processing ======================
     async def _process_message(self, update: Update, is_private=False, is_mention=False, is_reply=False):
         if not update.message or not update.message.text:
             return
@@ -77,7 +70,7 @@ class ChatBot:
         user_name = user.username or user.first_name or "friend"
         user_id = user.id
 
-        # Add user message to memory
+        # === Memory: Save user message ===
         self.conversations[user_id].append(("user", user_message))
 
         try:
@@ -90,7 +83,7 @@ class ChatBot:
 
             await update.message.reply_text(response)
 
-            # Add bot response to memory
+            # === Memory: Save bot response ===
             self.conversations[user_id].append(("assistant", response))
 
         except Exception as e:
@@ -100,6 +93,9 @@ class ChatBot:
                 await update.message.reply_text(fallback)
             except:
                 pass
+
+    # The rest of your handlers (handle_private_message, handle_mention, handle_reply, handle_group_message) 
+    # and generate_response stay exactly the same as in your last version.
 
     async def handle_private_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         await self._process_message(update, is_private=True)
@@ -118,7 +114,6 @@ class ChatBot:
             return
 
         text_lower = update.message.text.lower()
-
         if self.bot_username in text_lower or \
            (update.message.reply_to_message and 
             update.message.reply_to_message.from_user and 
@@ -129,12 +124,11 @@ class ChatBot:
                             'tesla', 'kubrick', 'fauci', 'gates', 'schwab']
         has_trigger = any(kw in text_lower for kw in trigger_keywords)
         
-        chance = 0.09 if has_trigger else 0.015   # 9% on trigger, 1.5% baseline
+        chance = 0.09 if has_trigger else 0.015
 
         if random.random() < chance:
             await self._process_message(update, is_private=False)
 
-    # ====================== AI Response ======================
     async def generate_response(self, user_message: str, user_name: str, history: str,
                                is_private=False, is_mention=False, is_reply=False):
         try:
@@ -165,8 +159,8 @@ class ChatBot:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message + wiki_info}
                 ],
-                max_tokens=280,           # Increased for longer replies
-                temperature=1.05,         # Helps with more broken/cute English
+                max_tokens=280,
+                temperature=1.05,
                 p=0.93,
             )
 
