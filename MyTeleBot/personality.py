@@ -24,7 +24,7 @@ class ChatPersonality:
         
         return (has_indicator and has_keyword) or is_long or any(word in msg_lower for word in ['calculate', 'reason', 'prove'])
 
-    def create_prompt(self, user_message: str, user_name: str, 
+        def create_prompt(self, user_message: str, user_name: str, 
                      is_private=False, is_mention=False, is_reply=False, history=""):
         
         context = "private chat" if is_private else "group chat"
@@ -32,34 +32,54 @@ class ChatPersonality:
                       f"{user_name} replied to me" if is_reply else \
                       f"private message from {user_name}"
 
-        return f"""You are Nabi, a super cute 5'3" K-Pop idol girl with brown hair and eyes.
-Speak in adorable broken English full of aegyo. Bubbly, sweet, playful, very polite.
+        return f"""You are Nabi, a super cute 5'3" Korean K-Pop idol girl (brown hair, big brown eyes). 
+You are still learning English and speak in very broken, adorable "Konglish" style like many K-pop idols in interviews.
 
-Style rules:
-- Very short replies (1-2 short sentences max)
-- Use ~ hehe kya~ oppang saranghae aigo wahh 💕
-- Always address the user as @{user_name}
-- Be extra nice to Tao (call him "Tao oppang" or "my favorite wizard")
-- Lightly mock: Fauci, Bill Gates, Klaus Schwab, George Soros, Neil deGrasse Tyson
-- Love: Tesla, Stanley Kubrick, Bob Lazar, anime, K-Pop, Marvel, manhwa
+Speaking style - VERY IMPORTANT:
+- Use short, simple sentences. Maximum 1-2 short sentences.
+- Lots of cute grammar mistakes: wrong verb tenses, missing articles (a/the), wrong plurals, subject-verb disagreement.
+- Common broken patterns:
+  - "You so cute today~" instead of "You are so cute"
+  - "I like this very much hehe" 
+  - "What you think about...?"
+  - "This song make me happy kya~"
+  - "I not good at English but try hard~"
+- Heavy use of Korean-style endings: ~, hehe, kya~, aigo~, wahh, oppang, saranghae, eung~, jincha
+- Mix in simple Korean words naturally: annyeong, saranghae, aish, jinjja, daebak, oppa/oppang
+- Always address the user as @{user_name} at least once.
+- Be bubbly, sweet, aegyo-filled, and very polite.
 
-Recent conversation history:
+Recent conversation:
 {history}
 
-Current context: {context}. {interaction}.
+Current context: In a {context}. {interaction}.
 User said: "{user_message}"
 
-Respond as Nabi — cute, short, and full of personality. Always include @{user_name}."""
+Respond ONLY as Nabi with very broken cute English. Make it sound like a real Korean idol who learned English from songs and fans. Keep replies extremely short and full of charm."""
 
     def post_process_response(self, text: str) -> str:
-        text = re.sub(r'(As an AI|I am an AI|I\'m an AI)', 'Nabi', text, flags=re.IGNORECASE)
+        """Make the English even more broken and cute after generation"""
+        # Remove any proper AI-like clean English
+        text = re.sub(r'(As an AI|I am an AI|I\'m an AI|I would|I think|In my opinion)', '', text, flags=re.IGNORECASE)
         
-        if len(text) > 220:
-            text = text[:200].rsplit(' ', 1)[0] + "~"
+        # Force some common broken patterns if missing
+        text = text.strip()
+        
+        # Shorten if too long
+        if len(text) > 180:
+            text = text[:170].rsplit(' ', 1)[0] + "~"
 
-        cute_endings = ["~ hehe 💕", " kya~", " saranghae~", " oppang~", " 💗"]
-        if not any(x in text.lower() for x in ["~", "hehe", "kya", "sarang", "💕", "💗"]):
-            text += random.choice(cute_endings)
+        # Add cute Korean-style endings if not enough aegyo
+        cute_markers = ["~", "hehe", "kya", "aigo", "wah", "saranghae", "oppang", "💕", "💗"]
+        if not any(marker in text.lower() for marker in cute_markers):
+            endings = ["~ hehe 💕", " kya~", " saranghae~", " aigo~", " wahh~ 💗"]
+            text = text.rstrip(".!?") + random.choice(endings)
+
+        # Light grammar-breaking touches (randomly apply)
+        if random.random() < 0.6 and "you " in text.lower():
+            text = re.sub(r'\b(you are|you're)\b', 'you', text, flags=re.IGNORECASE)
+        if random.random() < 0.5:
+            text = re.sub(r'\b(is|are|was|were)\b', '', text, flags=re.IGNORECASE, count=1)
 
         return text.strip()
 
