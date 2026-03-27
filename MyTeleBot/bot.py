@@ -1,6 +1,7 @@
 import logging
 import asyncio
 import random
+import re
 from collections import deque, defaultdict
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -18,9 +19,8 @@ class ChatBot:
         self.cohere_client = cohere.ClientV2(self.config.cohere_api_key)
         self.bot_username = "@Nabi_Chat_Bot".lower()
         
-        # === Conversation Memory (Still Active) ===
-        self.conversations = defaultdict(lambda: deque(maxlen=8))  # Remembers last 8 turns per user
-        
+        # === Conversation Memory ===
+        self.conversations = defaultdict(lambda: deque(maxlen=8))  
         self.application = None
 
     async def start(self):
@@ -42,7 +42,7 @@ class ChatBot:
         self.application.add_handler(MessageHandler(
             filters.TEXT & filters.ChatType.GROUPS, self.handle_group_message))
 
-        logger.info("🚀 Nabi Bot starting with conversation memory...")
+        logger.info("🚀 Nabi Bot starting...")
         await self.application.initialize()
         await self.application.start()
         await self.application.updater.start_polling()
@@ -74,7 +74,9 @@ class ChatBot:
         self.conversations[user_id].append(("user", user_message))
 
         try:
-            history = "\n".join([f"{role}: {content}" for role, content in list(self.conversations[user_id])[:-1]])
+            # Join history with a pipe or space to keep the prompt compact
+            history_list = [f"{role}: {content}" for role, content in list(self.conversations[user_id])[:-1]]
+            history = " | ".join(history_list) if history_list else "None"
 
             response = await self.generate_response(
                 user_message, user_name, history,
@@ -93,9 +95,6 @@ class ChatBot:
                 await update.message.reply_text(fallback)
             except:
                 pass
-
-    # The rest of your handlers (handle_private_message, handle_mention, handle_reply, handle_group_message) 
-    # and generate_response stay exactly the same as in your last version.
 
     async def handle_private_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         await self._process_message(update, is_private=True)
@@ -139,8 +138,8 @@ class ChatBot:
             if use_plus:
                 try:
                     wiki_result = self.personality.search_wikipedia(user_message)
-                    if wiki_result and len(wiki_result) > 10:
-                        wiki_info = f"\n\nContext: {wiki_result[:300]}"
+                    if wiki_result:
+                        wiki_info = f" (Context: {wiki_result[:200]})"
                 except:
                     pass
 
@@ -160,13 +159,12 @@ class ChatBot:
                     {"role": "user", "content": user_message + wiki_info}
                 ],
                 max_tokens=150,
-                temperature=0.98,
-                p=0.91,
+                temperature=0.9,
             )
 
             generated = response.message.content[0].text.strip()
             return self.personality.post_process_response(generated)
 
         except Exception as e:
-            logger.error(f"Cohere error with model {model}: {e}", exc_info=True)
+            logger.error(f"Cohere error: {e}", exc_info=True)
             return self.personality.get_fallback_response()
