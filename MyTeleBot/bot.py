@@ -159,9 +159,9 @@ class ChatBot:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message + wiki_info}
                 ],
-                max_tokens=280,
-                temperature=1.05,
-                p=0.93,
+                max_tokens=150,
+                temperature=0.98,
+                p=0.91,
             )
 
             generated = response.message.content[0].text.strip()
