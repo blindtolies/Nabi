@@ -158,7 +158,7 @@ class ChatBot:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message + wiki_info}
                 ],
-                max_tokens=140,
+                max_tokens=100,
                 temperature=0.86,  # High creativity for Konglish
                 p=0.71,            # Nucleus sampling to keep it coherent
             )
