@@ -97,7 +97,7 @@ class ChatPersonality:
                 return ""
             page = wikipedia.page(results[0], auto_suggest=False)
             summary = page.summary
-            return summary[:170] + "..." if len(summary) > 170 else summary
+            return summary[:120] + "..." if len(summary) > 120 else summary
         except Exception:
             return ""
 
