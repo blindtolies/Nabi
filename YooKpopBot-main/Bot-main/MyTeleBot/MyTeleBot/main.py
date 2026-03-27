@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+"""
+Main entry point for the Harley Quinn Telegram Bot
+"""
+import asyncio
+import logging
+from bot import ChatBot
+
+# Configure logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+async def main():
+    """Main function to start the bot"""
+    try:
+        bot = ChatBot()
+        await bot.start()
+    except Exception as e:
+        logger.error(f"Failed to start bot: {e}")
+        raise
+
+if __name__ == "__main__":
+    asyncio.run(main())
