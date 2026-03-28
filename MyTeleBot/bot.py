@@ -123,7 +123,7 @@ class ChatBot:
                             'tesla', 'kubrick', 'fauci', 'gates', 'schwab']
         has_trigger = any(kw in text_lower for kw in trigger_keywords)
         
-        chance = 0.09 if has_trigger else 0.015
+        chance = 0.01 if has_trigger else 0.01
 
         if random.random() < chance:
             await self._process_message(update, is_private=False)
@@ -158,9 +158,9 @@ class ChatBot:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message + wiki_info}
                 ],
-                max_tokens=100,
-                temperature=0.86,  # High creativity for Konglish
-                p=0.71,            # Nucleus sampling to keep it coherent
+                max_tokens=60,
+                temperature=0.96,  # High creativity for Konglish
+                p=0.81,            # Nucleus sampling to keep it coherent
             )
 
             generated = response.message.content[0].text.strip()
