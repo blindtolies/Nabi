@@ -15,12 +15,11 @@ class ChatBot:
         self.personality = ChatPersonality()
         self.cohere_client = cohere.ClientV2(self.config.cohere_api_key)
         self.application = None
-        self.bot_username = @Nabi_Chat_Bot  # Set dynamically after connecting to Telegram
+        self.bot_username = None  # Set dynamically after connecting to Telegram
         
     async def start(self):
         """Initialize and start the bot"""
         try:
-            # Create application - telegram_token is guaranteed to be a string by config validation
             token = self.config.telegram_token
             if not token:
                 raise ValueError("Telegram token is required")
@@ -43,18 +42,17 @@ class ChatBot:
                 filters.TEXT & filters.ChatType.PRIVATE, 
                 self.handle_private_message
             ))
-            # Handle all group messages (with random chance to respond)
             self.application.add_handler(MessageHandler(
                 filters.TEXT & filters.ChatType.GROUPS,
                 self.handle_group_message
             ))
             
-            # Start the bot
             logger.info("Starting Bot...")
             await self.application.initialize()
             await self.application.start()
 
-            # Fetch this bot's own username dynamically so each bot only responds to its own @
+            # Fetch this bot's own username dynamically
+            # This means each bot only responds to its own @ and its own messages
             bot_info = await self.application.bot.get_me()
             self.bot_username = f"@{bot_info.username}"
             logger.info(f"Bot username set to: {self.bot_username}")
@@ -62,7 +60,6 @@ class ChatBot:
             if self.application.updater:
                 await self.application.updater.start_polling()
             
-            # Keep the bot running
             logger.info("Bot is running! Press Ctrl+C to stop.")
             await asyncio.Event().wait()
             
@@ -115,7 +112,7 @@ class ChatBot:
         user_message = update.message.text
         user_name = update.effective_user.username or update.effective_user.first_name or "stranger" if update.effective_user else "stranger"
         
-        # Check if THIS bot is mentioned (uses dynamic username, not hardcoded)
+        # Only respond if THIS bot's username is mentioned
         if self.bot_username.lower() in user_message.lower():
             try:
                 response = await self.generate_response(user_message, user_name, is_mention=True)
@@ -126,15 +123,20 @@ class ChatBot:
                 await update.message.reply_text(fallback_response)
                 
     async def handle_reply(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle replies to bot messages"""
+        """Handle replies - only responds if the user is replying to THIS bot specifically"""
         if not update.message or not update.message.text:
             return
-            
-        # Check if the reply is to a bot message
-        if (update.message.reply_to_message and 
-            update.message.reply_to_message.from_user and 
-            update.message.reply_to_message.from_user.is_bot):
-            
+
+        # Safety guard in case username hasn't been set yet
+        if not self.bot_username:
+            return
+
+        replied_to = update.message.reply_to_message
+        if (replied_to and
+            replied_to.from_user and
+            replied_to.from_user.username and
+            f"@{replied_to.from_user.username}".lower() == self.bot_username.lower()):
+
             user_message = update.message.text
             user_name = update.effective_user.username or update.effective_user.first_name or "stranger" if update.effective_user else "stranger"
             
@@ -159,37 +161,28 @@ class ChatBot:
         user_message = update.message.text
         if self.bot_username.lower() in user_message.lower():
             return
+
+        # Skip if replying to any bot (reply handler takes care of this)
         if update.message.reply_to_message and update.message.reply_to_message.from_user and update.message.reply_to_message.from_user.is_bot:
             return
             
-        # HYBRID APPROACH: Higher chance with keywords, low baseline chance
-        
-        # Define trigger keywords based on Chat's interests
         trigger_keywords = [
-            # Topics she knows/loves
             'anime', 'cat',
             'marvel', 'manhwa', 'comic', 'kpop',
-            # Things she mocks
             'liberal',
-            # Conspiracy theories
             'mandela effect', 'aliens',
-            # Her relationships
             'tao',
-            # Other personality traits
             'based', 'kino',
         ]
         
-        # Check if any trigger keyword is in the message
         message_lower = user_message.lower()
         has_trigger = any(keyword in message_lower for keyword in trigger_keywords)
         
-        # Determine response chance
         if has_trigger:
-            response_chance = 0.02  # 2% chance when keywords present
+            response_chance = 0.02
         else:
-            response_chance = 0.02  # 2% baseline chance for random sass
+            response_chance = 0.02
         
-        # Roll the dice
         if random.random() < response_chance:
             user_name = update.effective_user.username or update.effective_user.first_name or "stranger" if update.effective_user else "stranger"
             try:
@@ -207,7 +200,6 @@ class ChatBot:
         has_question = any(indicator in message_lower for indicator in question_indicators)
         has_topic = any(keyword in message_lower for keyword in science_history_keywords)
         
-        # Also check for periodic table format with #
         has_periodic_table_format = '#' in message and any(char.isdigit() for char in message)
         
         return (has_question and has_topic) or has_periodic_table_format
@@ -215,14 +207,12 @@ class ChatBot:
     async def generate_response(self, user_message: str, user_name: str, is_private=False, is_mention=False, is_reply=False):
         """Generate AI response using Cohere Chat API"""
         try:
-            # Check if this is a science/history question
             wiki_info = ""
             if self.is_science_history_question(user_message):
                 wiki_result = self.personality.search_wikipedia(user_message)
                 if wiki_result and "Wikipedia failed" not in wiki_result and "Couldn't find" not in wiki_result:
                     wiki_info = f"\n\nWikipedia info: {wiki_result}"
             
-            # Create context-aware prompt
             system_prompt = self.personality.create_prompt(
                 user_message + wiki_info, 
                 user_name, 
@@ -231,7 +221,6 @@ class ChatBot:
                 is_reply=is_reply
             )
             
-            # Generate response with Cohere Chat API
             response = self.cohere_client.chat(
                 model='command-r-08-2024',
                 messages=[
@@ -249,8 +238,6 @@ class ChatBot:
             )
             
             generated_text = response.message.content[0].text.strip()
-            
-            # Post-process the response to ensure it fits the personality
             final_response = self.personality.post_process_response(generated_text)
             
             return final_response
