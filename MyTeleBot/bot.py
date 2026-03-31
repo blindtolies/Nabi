@@ -15,7 +15,7 @@ class ChatBot:
         self.personality = ChatPersonality()
         self.cohere_client = cohere.ClientV2(self.config.cohere_api_key)
         self.application = None
-        self.bot_username = None  # Set dynamically after connecting to Telegram
+        self.bot_username = @Nabi_Chat_Bot  # Set dynamically after connecting to Telegram
         
     async def start(self):
         """Initialize and start the bot"""
