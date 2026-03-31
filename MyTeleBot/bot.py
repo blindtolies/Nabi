@@ -1,7 +1,6 @@
 import logging
 import asyncio
 import random
-import re
 from collections import deque, defaultdict
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -17,10 +16,9 @@ class ChatBot:
         self.config = Config()
         self.personality = ChatPersonality()
         self.cohere_client = cohere.ClientV2(self.config.cohere_api_key)
-        self.bot_username = "@Nabi_Chat_Bot".lower()
+        self.bot_username = "@Nabi_Chat_Bot".lower()          # ← CHANGE THIS for your second bot!
         
-        # === Conversation Memory ===
-        self.conversations = defaultdict(lambda: deque(maxlen=8))  
+        self.conversations = defaultdict(lambda: deque(maxlen=8))
         self.application = None
 
     async def start(self):
@@ -35,10 +33,14 @@ class ChatBot:
 
         self.application.add_handler(MessageHandler(
             filters.TEXT & filters.REPLY & filters.ChatType.GROUPS, self.handle_reply))
+        
+        # FIXED: Only trigger when THIS bot is actually mentioned
         self.application.add_handler(MessageHandler(
             filters.TEXT & filters.Entity("mention"), self.handle_mention))
+        
         self.application.add_handler(MessageHandler(
             filters.TEXT & filters.ChatType.PRIVATE, self.handle_private_message))
+        
         self.application.add_handler(MessageHandler(
             filters.TEXT & filters.ChatType.GROUPS, self.handle_group_message))
 
@@ -50,6 +52,7 @@ class ChatBot:
         logger.info("✅ Nabi is online~ 💕")
         await asyncio.Event().wait()
 
+    # ====================== Command Handlers ======================
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if update.message:
             await update.message.reply_text(self.personality.get_start_message())
@@ -58,6 +61,7 @@ class ChatBot:
         if update.message:
             await update.message.reply_text(self.personality.get_help_message())
 
+    # ====================== Message Handlers ======================
     async def _process_message(self, update: Update, is_private=False, is_mention=False, is_reply=False):
         if not update.message or not update.message.text:
             return
@@ -70,37 +74,26 @@ class ChatBot:
         user_name = user.username or user.first_name or "friend"
         user_id = user.id
 
-        # === Memory: Save user message ===
         self.conversations[user_id].append(("user", user_message))
 
         try:
-            # Join history with a pipe or space to keep the prompt compact
-            history_list = [f"{role}: {content}" for role, content in list(self.conversations[user_id])[:-1]]
-            history = " | ".join(history_list) if history_list else "None"
-
-            response = await self.generate_response(
-                user_message, user_name, history,
-                is_private=is_private, is_mention=is_mention, is_reply=is_reply
-            )
-
+            history = " | ".join([f"{role}: {content}" for role, content in list(self.conversations[user_id])[:-1]])
+            response = await self.generate_response(user_message, user_name, history, is_private, is_mention, is_reply)
             await update.message.reply_text(response)
-
-            # === Memory: Save bot response ===
             self.conversations[user_id].append(("assistant", response))
-
         except Exception as e:
-            logger.error(f"Error processing message from {user_name}: {e}", exc_info=True)
+            logger.error(f"Error from {user_name}: {e}", exc_info=True)
             fallback = self.personality.get_error_response()
-            try:
-                await update.message.reply_text(fallback)
-            except:
-                pass
+            await update.message.reply_text(fallback)
 
     async def handle_private_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         await self._process_message(update, is_private=True)
 
     async def handle_mention(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await self._process_message(update, is_mention=True)
+        if not update.message or not update.message.text:
+            return
+        if self.bot_username in update.message.text.lower():
+            await self._process_message(update, is_mention=True)
 
     async def handle_reply(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if (update.message and update.message.reply_to_message and 
@@ -113,19 +106,20 @@ class ChatBot:
             return
 
         text_lower = update.message.text.lower()
+
+        # Skip if already handled by mention or reply
         if self.bot_username in text_lower or \
-           (update.message.reply_to_message and 
-            update.message.reply_to_message.from_user and 
-            update.message.reply_to_message.from_user.is_bot):
+           (update.message.reply_to_message and update.message.reply_to_message.from_user.is_bot):
             return
 
         trigger_keywords = ['anime', 'kpop', 'cat', 'marvel', 'manhwa', 'tao', 'based', 'kino',
-                            'tesla', 'kubrick', 'fauci', 'gates', 'schwab']
+                            'tesla', 'kubrick', 'fauci', 'gates', 'schwab', 'illit', 'wonhee']
         has_trigger = any(kw in text_lower for kw in trigger_keywords)
         
-        chance = 0.01 if has_trigger else 0.01
+        # === Your original style restored ===
+        response_chance = 0.06 if has_trigger else 0.015   # 6% on trigger, 1.5% baseline
 
-        if random.random() < chance:
+        if random.random() < response_chance:
             await self._process_message(update, is_private=False)
 
     async def generate_response(self, user_message: str, user_name: str, history: str,
@@ -144,12 +138,7 @@ class ChatBot:
                     pass
 
             system_prompt = self.personality.create_prompt(
-                user_message + wiki_info,
-                user_name,
-                is_private=is_private,
-                is_mention=is_mention,
-                is_reply=is_reply,
-                history=history
+                user_message + wiki_info, user_name, is_private, is_mention, is_reply, history
             )
 
             response = self.cohere_client.chat(
@@ -158,9 +147,9 @@ class ChatBot:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message + wiki_info}
                 ],
-                max_tokens=60,
-                temperature=0.96,  # High creativity for Konglish
-                p=0.81,            # Nucleus sampling to keep it coherent
+                max_tokens=220,      # ← controlled length
+                temperature=1.00,
+                p=0.92,
             )
 
             generated = response.message.content[0].text.strip()
